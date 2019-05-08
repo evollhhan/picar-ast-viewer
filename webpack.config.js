@@ -2,6 +2,12 @@
 
 const path = require('path');
 
+console.log(`
+
+  [Note] Restart vscode watch task if you want to debug project after package.
+
+`)
+
 /**@type {import('webpack').Configuration}*/
 const config = {
   target: 'node', // vscode extensions run in a Node.js-context 📖 -> https://webpack.js.org/configuration/node/

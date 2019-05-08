@@ -9,7 +9,11 @@ import blackboard from './core/blackboard';
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 
-	console.log('Active Pipe-designer.');
+	vscode.workspace.findFiles('.pipe.config.json').then(res => {
+		if (res.length && res[0].scheme === 'file') {
+			console.log('Active Pipe-designer.');
+		}
+	});
 
 	workspace.init();
 
