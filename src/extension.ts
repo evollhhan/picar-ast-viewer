@@ -9,26 +9,37 @@ import blackboard from './core/blackboard';
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 
+	let configFileDetected = false;
+
 	vscode.workspace.findFiles('.pipe.config.json').then(res => {
-		if (res.length && res[0].scheme === 'file') {
-			console.log('Active Pipe-designer.');
+		if (!res.length || res[0].scheme !== 'file') {
+			return;
 		}
-	});
 
-	workspace.init();
+		console.log('Active Pipe-designer.');
 
-	// init workspace
-	workspace.findAllFiles().then(list => fieldManager.build(list));
-	
-	// on save document
-	vscode.workspace.onDidSaveTextDocument(function (e: vscode.TextDocument) {
-		fieldManager.update(e);
-		blackboard.render();
+		configFileDetected = true;
+
+		workspace.init();
+
+		// init workspace
+		workspace.findAllFiles().then(list => fieldManager.build(list));
+		
+		// on save document
+		vscode.workspace.onDidSaveTextDocument(function (e: vscode.TextDocument) {
+			fieldManager.update(e);
+			blackboard.render();
+		});
+
 	});
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('pipedesigner.show', () => {
-			blackboard.createView(context.extensionPath);
+			if (configFileDetected) {
+				blackboard.createView(context.extensionPath);
+			} else {
+				vscode.window.showWarningMessage('Please create .pipe.config.json in the project and reopen this workspace.');
+			}
 		})
 	);
 }
