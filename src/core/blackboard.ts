@@ -32,6 +32,10 @@ class Blackboard {
       switch (message.event) {
         case 'viewInitReady':
           this.render();
+          (this.panel!).webview.postMessage({
+            command: 'updateContentPath',
+            data: 'vscode-resource:' + resolve(__dirname, '../../view/')
+          });
           break;
         case 'jumpLocation':
           const { location, env } = message.data as { env: Field.Env, location: Field.PipeMethodLocation };
