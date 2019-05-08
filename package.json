@@ -30,12 +30,12 @@
 			]
 		}
 	},
-	"main": "./dist/extension.js",
+	"main": "./out/extension.js",
 	"scripts": {
 		"vscode:prepublish": "npm run bundle",
 		"compile": "tsc -p ./",
 		"watch": "tsc -watch -p ./",
-		"bundle": "webpack --mode production",
+		"bundle": "rm -rf ./out && webpack --mode none",
 		"postinstall": "node ./node_modules/vscode/bin/install",
 		"test": "npm run compile && node ./node_modules/vscode/bin/test"
 	},
