@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('pipedesigner.show', () => {
-			blackboard.createView();
+			blackboard.createView(context.extensionPath);
 		})
 	);
 }

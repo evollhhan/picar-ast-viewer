@@ -7,7 +7,7 @@ import fieldManager from './field-manager';
 class Blackboard {
   public panel: vscode.WebviewPanel | null = null;
 
-  createView () {
+  createView (extensionPath: string) {
     if (this.panel) {
       const columnToShow = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
       this.panel.reveal(columnToShow);
@@ -34,7 +34,7 @@ class Blackboard {
           this.render();
           (this.panel!).webview.postMessage({
             command: 'updateContentPath',
-            data: 'vscode-resource:' + resolve(__dirname, '../../view/')
+            data: 'vscode-resource:' + resolve(extensionPath, './view/')
           });
           break;
         case 'jumpLocation':
@@ -64,7 +64,7 @@ class Blackboard {
       }
     });
 
-    readFile(resolve(__dirname, '../../view/index.html'), (err, data) => {
+    readFile(resolve(extensionPath, './view/index.html'), (err, data) => {
       if (err) {
         console.log('Get html Error');
         return;

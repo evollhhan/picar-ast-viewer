@@ -2,6 +2,7 @@
 	"name": "pipe-designer",
 	"displayName": "pipe-designer",
 	"description": "an extension for pipe",
+	"publisher": "Pathen",
 	"version": "0.0.1",
 	"engines": {
 		"vscode": "^1.33.0"
@@ -29,20 +30,24 @@
 			]
 		}
 	},
-	"main": "./out/extension.js",
+	"main": "./dist/extension.js",
 	"scripts": {
-		"vscode:prepublish": "npm run compile",
+		"vscode:prepublish": "npm run bundle",
 		"compile": "tsc -p ./",
 		"watch": "tsc -watch -p ./",
+		"bundle": "webpack --mode production",
 		"postinstall": "node ./node_modules/vscode/bin/install",
 		"test": "npm run compile && node ./node_modules/vscode/bin/test"
 	},
 	"devDependencies": {
+		"@types/mocha": "^2.2.42",
+		"@types/node": "^10.12.21",
+		"ts-loader": "^6.0.0",
+		"tslint": "^5.12.1",
 		"typescript": "^3.3.1",
 		"vscode": "^1.1.28",
-		"tslint": "^5.12.1",
-		"@types/node": "^10.12.21",
-		"@types/mocha": "^2.2.42"
+		"webpack": "^4.30.0",
+		"webpack-cli": "^3.3.2"
 	},
 	"dependencies": {
 		"ts-morph": "^2.1.0"
