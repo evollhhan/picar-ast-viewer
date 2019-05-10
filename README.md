@@ -14,10 +14,23 @@
 - [x] pipe.worker() 部分支持，现在只能检测是否启用，而不能检测具体的worker
 - [x] pipe.lazy(lazy: boolean)
 
+### 图标实例
+
+如果你为对应装饰方法的jsDoc里添加如下关键字段，那么在图表展示的时候会有颜色提示：
+```
+@service    服务模块
+@data       数据模块
+@controller 控制模块
+@ui         视图模块
+```
+后续会添加一些自定义色块的展示。
+
 <!-- ## Known Issues
 -- -->
 
 ## Release Notes
 
-### 0.1.0
+### 0.0.1
 Basic Support.
+
+### 0.1.0

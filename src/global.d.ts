@@ -14,6 +14,7 @@ declare namespace Field {
     className: string;
     pipes: Field.PipeNode[];
     env: Field.Env;
+    kind?: string;
   }
 
   interface PipeMethodLocation {
@@ -27,11 +28,12 @@ declare namespace Field {
     method: string;
     enable: boolean;
     env: Field.Env;
+    location: PipeMethodLocation;
     key?: string;
     className?: string;
     destination?: string;
     enableWorker?: boolean;
     lazy?: boolean;
-    location: PipeMethodLocation;
+    kind?: string;
   }
 }

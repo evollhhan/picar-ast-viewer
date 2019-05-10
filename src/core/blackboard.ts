@@ -80,7 +80,7 @@ class Blackboard {
     if (!this.panel) {
       return;
     }
-
+    console.log(JSON.stringify(fieldManager.tree));
     this.panel.webview.postMessage({
       command: 'updateFlowData',
       data: data || fieldManager.tree

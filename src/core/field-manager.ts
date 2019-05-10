@@ -5,37 +5,35 @@ import * as fs from 'fs';
 
 class FieldManager {
   public tree: Field.Map = Object.create(null);
+  public fileList: Set<string> = new Set();
   public program!: ts.Program;
+  public compileOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.Latest
+  };
 
   build (list: vscode.Uri[]) {
-    return new Promise(resolve => {
-      let resolvedCount = 0;
-      const length = list.length;
-      list.forEach(uri => {
-        fs.readFile(uri.path, (err, data) => {
-          if (err) {
-            console.error('err read file.', err);
-            return;
-          }
-  
-          const source = ts.createSourceFile(uri.path, data.toString(), ts.ScriptTarget.Latest, true);
-          this.updateFromSourceFile(uri.path, source);
-          resolvedCount += 1;
-          if (resolvedCount === length) {
-            resolve();
-          }
-        });
-      });
+    list.forEach(file => this.fileList.add(file.path));
+    this.updateProgram();
+    this.fileList.forEach(fileName => {
+      this.updateFromSourceFile(fileName);
     });
   }
 
   update (doc: vscode.TextDocument) {
-    const source = ts.createSourceFile(doc.fileName, doc.getText(), ts.ScriptTarget.Latest, true);
-    this.updateFromSourceFile(doc.fileName, source);
+    if (!this.fileList.has(doc.fileName)) {
+      this.fileList.add(doc.fileName);
+    }
+    this.updateProgram();
+    this.updateFromSourceFile(doc.fileName);
   }
 
-  updateFromSourceFile (fileName: string, source: ts.SourceFile) {
-    const ast = new AstProvider(fileName, source);
+  updateProgram () {
+    this.program = ts.createProgram(Array.from(this.fileList), this.compileOptions);
+  }
+
+  updateFromSourceFile (fileName: string) {
+    const source = this.program.getSourceFile(fileName)!;
+    const ast = new AstProvider(fileName, source, this.program.getTypeChecker());
     delete this.tree[fileName];
     if (ast.list.length) {
       this.tree[fileName] = ast.list;
