@@ -168,9 +168,12 @@ export class AstProvider {
 		// 1. @pipe('test')
 		// 2. var test = 'test'
 		// 		@pipe(test)
-		if (type.flags === ts.TypeFlags.StringLiteral) {
-			treeNode.source.push((type as ts.StringLiteralType).value);
-		}
+		if (
+      (type.flags === ts.TypeFlags.StringLiteral) ||
+      (type.flags === ts.TypeFlags.String)
+    ) {
+			treeNode.source.push(this.getValueText(arg));
+    }
 		// 1. var test = { WORD: 'test' }
 		// 		@pipe(test)
 		// 2. @pipe({ test: 'test' })
