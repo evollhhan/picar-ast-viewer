@@ -2,8 +2,6 @@ import * as ts from 'typescript';
 
 const PIPE_ALIAS = `'pipe/index'`;
 
-const FILED_TYPE = ['controller', 'data', 'ui', 'service'];
-
 export class AstProvider {
   public list: Field.PipeModule[] = [];
   public sourceFile: ts.SourceFile;
@@ -86,15 +84,17 @@ export class AstProvider {
       env: this.env,
       className,
       pipes: [],
-      kind: this.getFieldOrMethodKind(node)
     };
+    Object.assign(field, this.getFieldOrMethodInfo(node));
     ts.forEachChild(node, it => {
       switch (it.kind) {
         case ts.SyntaxKind.MethodDeclaration:
           const res = this.checkPipeDecorator(it as ts.MethodDeclaration);
           if (res) {
+            const { kind, desc } = this.getFieldOrMethodInfo(it);
             res.className = className;
-            res.kind = this.getFieldOrMethodKind(it) || field.kind;
+            res.kind =  kind || field.kind;
+            res.desc = desc;
             field.pipes.push(res);
           }
           break;
@@ -105,23 +105,26 @@ export class AstProvider {
     }
   }
 
-  private getFieldOrMethodKind (node: ts.Node): string {
-    let type = '';
-    ts.getJSDocTags(node).some(sn => {
+  private getFieldOrMethodInfo (node: ts.Node): { kind: string, desc: string } {
+    const res = { kind: '', desc: '' }; 
+    ts.getJSDocTags(node).forEach(sn => {
       const text = sn.tagName.getText();
-      if (FILED_TYPE.indexOf(text) > -1) {
-        type = text;
-        return true;
+      if (text === 'as') {
+        res.kind = sn.comment || '';
+      } else if (text === 'description') {
+        res.desc = sn.comment || '';
       }
     });
-    return type;
+    return res;
   }
 
 	private checkPipeDecorator (node: ts.MethodDeclaration): Field.PipeNode | undefined {
 		if (!node.decorators || !node.decorators.length) {
 			// TODO: 没有装饰器或者装饰器不是pipe的method也应该展示
 			return;
-		}
+    }
+
+    const length = node.decorators.length;    
 		const method = node.name.getText();
     const { line, character } = this.sourceFile.getLineAndCharacterOfPosition(node.getStart());
     const treeNode: Field.PipeNode = {
@@ -130,11 +133,12 @@ export class AstProvider {
       enable: false,
       env: this.env,
       location: {
-        line: line + node.decorators.length,
+        line: line,
         character: character,
         range: method.length
       }
-		};
+    };
+    
 		
 		node.decorators.forEach(deco => {
 			// check pipe decorator
@@ -150,7 +154,11 @@ export class AstProvider {
 					treeNode.destination = treeNode.method;
 				}
 			}
-		});
+    });
+
+    const lastDeco = node.decorators[length - 1];
+    const { line: lastLine } = this.sourceFile.getLineAndCharacterOfPosition(lastDeco.getEnd());
+    treeNode.location.line = lastLine + 1;
 
 		return treeNode;
 	}

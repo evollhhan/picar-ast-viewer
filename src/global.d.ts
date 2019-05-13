@@ -10,11 +10,15 @@ declare namespace Field {
     [index: string]: any;
   }
 
-  interface PipeModule {
-    className: string;
-    pipes: Field.PipeNode[];
+  interface BaseInfo {
     env: Field.Env;
     kind?: string;
+    desc?: string;
+  }
+
+  interface PipeModule extends BaseInfo {
+    className: string;
+    pipes: Field.PipeNode[];
   }
 
   interface PipeMethodLocation {
@@ -23,17 +27,15 @@ declare namespace Field {
     range: number;
   }
 
-  interface PipeNode {
+  interface PipeNode extends BaseInfo {
     source: string[];
     method: string;
     enable: boolean;
-    env: Field.Env;
     location: PipeMethodLocation;
     key?: string;
     className?: string;
     destination?: string;
     enableWorker?: boolean;
     lazy?: boolean;
-    kind?: string;
   }
 }
