@@ -19,6 +19,7 @@ declare namespace Field {
   interface PipeModule extends BaseInfo {
     className: string;
     pipes: Field.PipeNode[];
+    methods: string[];
   }
 
   interface PipeMethodLocation {
@@ -37,5 +38,10 @@ declare namespace Field {
     destination?: string;
     enableWorker?: boolean;
     lazy?: boolean;
+  }
+
+  interface EditInfo {
+    action: 'modify';
+    pipeNode: Field.PipeNode;
   }
 }

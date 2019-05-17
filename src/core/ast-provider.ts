@@ -3,37 +3,176 @@ import * as ts from 'typescript';
 const PIPE_ALIAS = `'pipe/index'`;
 
 export class AstProvider {
+  private sourceFile: ts.SourceFile | null = null;
+  private checker: ts.TypeChecker;
+  private editorMode: boolean = false;
+  private editInfo!: Field.EditInfo;
+  private status: 'build' | 'done' | 'ready' = 'ready';
+  public output: string | undefined = '';
   public list: Field.PipeModule[] = [];
-  public sourceFile: ts.SourceFile;
-  public checker: ts.TypeChecker;
   public env: Field.Env = {
     PIPE: 'pipe',
     FIELD: 'field',
     filePath: ''
   };
 
-  constructor (filePath: string, sourceFile: ts.SourceFile, checker: ts.TypeChecker) {
+  constructor (checker: ts.TypeChecker) {
     this.checker = checker;
-    this.sourceFile = sourceFile;
-    this.env.filePath = filePath;
-    this.createFieldMap(sourceFile);
   }
 
-  private createFieldMap (node: ts.Node) {
-    ts.forEachChild(node, it => {
+  build (filePath: string, sourceFile: ts.SourceFile) {
+    this.sourceFile = sourceFile;
+    this.env.filePath = filePath;
+    this.status = 'build';
+    ts.forEachChild(this.sourceFile, it => {
+      if (this.status === 'done') {
+        return;
+      }
+
       switch (it.kind) {
         case ts.SyntaxKind.ImportDeclaration:
           this.checkPipeReference(it as ts.ImportDeclaration);
           break;
         case ts.SyntaxKind.ClassDeclaration:
-          const res = this.searchField(it as ts.ClassDeclaration);
-          if (res) {
-            this.searchPipeFromClass(it as ts.ClassDeclaration);
+          // TODO 是否要处理未加Field标签的类
+          if (this.editorMode) {
+            this.editTargetNode(it);
+          } else {
+            if (this.searchTargetDecorator(it as ts.ClassDeclaration, this.env.FIELD)) {
+              this.searchPipeFromClass(it as ts.ClassDeclaration);
+            }
           }
           break;
         default: break;
       }
     });
+  }
+
+  done (output?: string) {
+    this.status = 'done';
+    this.output = output;
+  }
+
+  startEdit (editInfo: Field.EditInfo) {
+    this.editorMode = true;
+    this.editInfo = editInfo;
+  }
+
+  stopEdit () {
+    this.editorMode = false;
+  }
+
+  private editTargetNode (node: ts.Node) {
+    ts.forEachChild(node, sn => {
+      if (sn.kind === ts.SyntaxKind.MethodDeclaration) {
+        this.editFieldMethod(sn as ts.MethodDeclaration);
+      }
+    });
+  }
+
+  private editFieldMethod (met: ts.MethodDeclaration) {
+    if (met.name.getText() !== this.editInfo.pipeNode.method) {
+      return;
+    }
+    const transformer = this.createDecoratorTransformer();
+    const res = ts.transform(met, [ transformer ]);
+    const transformedMethod = res.transformed[0];
+    const source = this.sourceFile!;
+    if (transformedMethod) {
+      const printer = ts.createPrinter();
+      const outputCode = printer.printNode(ts.EmitHint.Unspecified, transformedMethod, source);
+      const oldsrc = source.getFullText();
+      const startPos = met.getFullStart() + 1;
+      const newsrc = oldsrc.substr(0, startPos) + outputCode + oldsrc.substr(startPos + met.getFullText().length, oldsrc.length);
+      this.done(newsrc);
+    }
+  }
+
+  private createDecoratorTransformer () {
+    const { action, pipeNode } = this.editInfo;
+    const self = this;
+    return function transformer (ctx: ts.TransformationContext): ts.Transformer<ts.Node> {
+      const visitor: ts.Visitor = (node: ts.Node): ts.Node => {
+        // TODO: check exist decorator
+        // TODO: 需要注意的是，目前装饰器的顺序是被添加在最后
+        const filterDecoArray: ts.Decorator[] = [];
+        if (node.decorators) {
+          node.decorators.forEach(deco => {
+            if (
+              deco.expression.kind === ts.SyntaxKind.CallExpression &&
+              (deco.expression as ts.CallExpression).expression.getText() !== self.env.PIPE
+            ) {
+              filterDecoArray.push(deco);
+            }
+          });
+        }
+        if (action === 'modify') {
+          filterDecoArray.push(
+            self.createPipeDecorator(pipeNode)
+          );
+        }
+        node.decorators = ts.createNodeArray(filterDecoArray);
+        return node;
+      };
+    
+      return (node: ts.Node) => {
+        return ts.visitNode(node, visitor);
+      };
+    };
+  }
+
+  private createStringOrIndentifierProperty (text: string): ts.Expression {
+    if (!text) {
+      return ts.createNull();
+    }
+  
+    if (/'.+'/g.test(text)) {
+      const str = ts.createStringLiteral(text.substr(1, text.length - 2));
+      (str as any).singleQuote = true;
+      return str;
+    } else {
+      return ts.createIdentifier(text);
+    }
+  }
+  
+  private createPipeDecorator (pipe: Field.PipeNode) {
+    const properties: ts.ObjectLiteralElementLike[] = [];
+    if (pipe.source) {
+      const srcArray: ts.Expression[] = [];
+      pipe.source.forEach(src => {
+        srcArray.push(this.createStringOrIndentifierProperty(src));
+      });
+      properties.push(
+        ts.createPropertyAssignment('prev', ts.createArrayLiteral(srcArray))
+      );
+    }
+    if (pipe.destination) {
+      properties.push(
+        ts.createPropertyAssignment('next', this.createStringOrIndentifierProperty(pipe.destination))
+      );
+    }
+    if (pipe.key) {
+      properties.push(
+        ts.createPropertyAssignment('key', this.createStringOrIndentifierProperty(pipe.key))
+      );
+    }
+    if (pipe.enableWorker) {
+      properties.push(
+        ts.createPropertyAssignment('worker', ts.createTrue())
+      );
+    }
+    if (pipe.lazy) {
+      properties.push(
+        ts.createPropertyAssignment('lazy', ts.createTrue())
+      );
+    }
+    return ts.createDecorator(
+      ts.createCall(
+        ts.createIdentifier(this.env.PIPE),
+        [],
+        [ts.createObjectLiteral(properties, true)]
+      )
+    );
   }
 
   private checkPipeReference (node: ts.ImportDeclaration) {
@@ -58,24 +197,10 @@ export class AstProvider {
     });
   }
 
-  private searchField (node: ts.ClassDeclaration): boolean {
-    if (!node.decorators || !node.decorators.length) {
-      return false;
-    }
-  
-    let flag = false;
-    node.decorators.forEach(deco => {
-      const decoName = deco.expression.getText();
-      if (decoName === this.env.FIELD) {
-        if (flag) {
-          // TODO: ERROR
-          throw new Error('Duplicate field error');
-        } else {
-          flag = true;
-        }
-      }
+  private searchTargetDecorator (node: ts.Node, flag: string): ts.Decorator | undefined {
+    return node.decorators && node.decorators.find(deco => {
+      return deco.expression.getText() === flag;
     });
-    return flag;
   }
 
   private searchPipeFromClass (node: ts.ClassDeclaration) {
@@ -84,18 +209,22 @@ export class AstProvider {
       env: this.env,
       className,
       pipes: [],
+      methods: []
     };
     Object.assign(field, this.getFieldOrMethodInfo(node));
     ts.forEachChild(node, it => {
       switch (it.kind) {
         case ts.SyntaxKind.MethodDeclaration:
-          const res = this.checkPipeDecorator(it as ts.MethodDeclaration);
-          if (res) {
-            const { kind, desc } = this.getFieldOrMethodInfo(it);
-            res.className = className;
-            res.kind =  kind || field.kind;
-            res.desc = desc;
-            field.pipes.push(res);
+          if (this.isPublic(it)) {
+            field.methods.push((it as ts.MethodDeclaration).name.getText());
+            const res = this.checkPipeDecorator(it as ts.MethodDeclaration);
+            if (res) {
+              const { kind, desc } = this.getFieldOrMethodInfo(it);
+              res.className = className;
+              res.kind =  kind || field.kind;
+              res.desc = desc;
+              field.pipes.push(res);
+            }
           }
           break;
       }
@@ -103,6 +232,16 @@ export class AstProvider {
     if (field.pipes.length) {
       this.list.push(field);
     }
+  }
+
+  private isPublic (node: ts.Node): boolean {
+    if (!node.modifiers) {
+      return true;
+    }
+    return node.modifiers.some((token: ts.Modifier) => {
+      return token.kind !== ts.SyntaxKind.PrivateKeyword
+        && token.kind !== ts.SyntaxKind.ProtectedKeyword;
+    });
   }
 
   private getFieldOrMethodInfo (node: ts.Node): { kind: string, desc: string } {
@@ -126,7 +265,7 @@ export class AstProvider {
 
     const length = node.decorators.length;    
 		const method = node.name.getText();
-    const { line, character } = this.sourceFile.getLineAndCharacterOfPosition(node.getStart());
+    const { line, character } = this.sourceFile!.getLineAndCharacterOfPosition(node.getStart());
     const treeNode: Field.PipeNode = {
       method,
       source: [],
@@ -149,7 +288,8 @@ export class AstProvider {
 				this.parseArguments(treeNode, args[0]);
 				if (length > 1) {
 					treeNode.destination = this.getValueText(args[1]);
-				}
+        }
+        // TODO: Ignore this!
 				if (!treeNode.destination) {
 					treeNode.destination = treeNode.method;
 				}
@@ -157,7 +297,7 @@ export class AstProvider {
     });
 
     const lastDeco = node.decorators[length - 1];
-    const { line: lastLine } = this.sourceFile.getLineAndCharacterOfPosition(lastDeco.getEnd());
+    const { line: lastLine } = this.sourceFile!.getLineAndCharacterOfPosition(lastDeco.getEnd());
     treeNode.location.line = lastLine + 1;
 
 		return treeNode;
@@ -216,7 +356,7 @@ export class AstProvider {
 
 	private getValueText (node: ts.Node): string {
 		if (node.kind === ts.SyntaxKind.StringLiteral) {
-			return (node as ts.StringLiteral).text;
+			return '\'' + (node as ts.StringLiteral).text + '\'';
 		} else {
 			const str = this.checker.typeToString(this.checker.getTypeAtLocation(node));
 			if (str === 'string') {

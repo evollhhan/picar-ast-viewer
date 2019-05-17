@@ -19,25 +19,48 @@ class FieldManager {
     });
   }
 
-  update (doc: vscode.TextDocument) {
-    if (!this.fileList.has(doc.fileName)) {
-      this.fileList.add(doc.fileName);
+  update (fileName: string) {
+    if (!this.fileList.has(fileName)) {
+      this.fileList.add(fileName);
     }
     this.updateProgram();
-    this.updateFromSourceFile(doc.fileName);
+    this.updateFromSourceFile(fileName);
   }
 
-  updateProgram () {
+  private updateProgram () {
     this.program = ts.createProgram(Array.from(this.fileList), this.compileOptions);
   }
 
-  updateFromSourceFile (fileName: string) {
+  private updateFromSourceFile (fileName: string) {
     const source = this.program.getSourceFile(fileName)!;
-    const ast = new AstProvider(fileName, source, this.program.getTypeChecker());
+    const ast = new AstProvider(this.program.getTypeChecker());
+    ast.build(fileName, source);
     delete this.tree[fileName];
     if (ast.list.length) {
       this.tree[fileName] = ast.list;
     }
+  }
+
+  editSourceFile (editInfo: Field.EditInfo): Promise<{ result: boolean, fileName?: string }> {
+    return new Promise((resolve, reject) => {
+      const ast = new AstProvider(this.program.getTypeChecker());
+      const fileName = editInfo.pipeNode.env.filePath;
+      const source = this.program.getSourceFile(fileName)!;
+      ast.startEdit(editInfo);
+      ast.build(fileName, source);
+      ast.stopEdit();
+      if (ast.output) {
+        fs.writeFile(fileName, ast.output, err => {
+          if (err) {
+            return reject(err);
+          }
+          this.update(fileName);
+          resolve({ result: true, fileName });
+        });
+      } else {
+        resolve({ result: false });
+      }
+    });
   }
 }
 

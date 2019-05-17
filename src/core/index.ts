@@ -21,8 +21,8 @@ export default function (context: vscode.ExtensionContext) {
 		workspace.findAllFiles().then(list => fieldManager.build(list));
 		
 		// on save document
-		vscode.workspace.onDidSaveTextDocument(function (e: vscode.TextDocument) {
-			fieldManager.update(e);
+		vscode.workspace.onDidSaveTextDocument(function (doc: vscode.TextDocument) {
+			fieldManager.update(doc.fileName);
 			blackboard.render();
 		});
 
