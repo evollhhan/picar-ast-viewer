@@ -2,19 +2,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as ts from 'typescript';
+import state from './state';
 
 class Workspace {
   public root: string = '';
-  public config: any = null;
   public include: string[] = [];
   public files: vscode.Uri[] = [];
 
   init () {
     this.root = vscode.workspace.rootPath || '';
-    this.setConfig();
+    this.loadTsConfig();
+    this.loadProjectConfig();
+    this.loadPreset();
   }
 
-  private setConfig () {
+  private loadTsConfig () {
     const url = path.resolve(this.root, 'tsconfig.json');
     const { config, error } = ts.readConfigFile(url, path => {
       return fs.readFileSync(path).toString();
@@ -24,13 +26,41 @@ class Workspace {
       throw error;
     }
 
-    this.config = config;
-    if (!this.config.include) {
+    if (!config) {
+      return;
+    }
+
+    state.tsConfig = config;
+    if (!config.include) {
       this.include.push('src/**/*.ts');
     } else {
-      this.config.include.forEach((path: string) => {
+      config.include.forEach((path: string) => {
         this.include.push(this.resolveIncludePath(path));
       });
+    }
+  }
+
+  public loadProjectConfig () {
+    try {
+      const url = path.resolve(this.root, '.pipe.config.json');
+      const config = JSON.parse(fs.readFileSync(url).toString());
+      Object.assign(state.projectConfig, config);
+    } catch (e) {
+      console.error('Read .pipe.config.json file error');
+    }
+  }
+
+  public loadPreset () {
+    if (!state.projectConfig.preset) {
+      return;
+    }
+
+    try {
+      const url = path.resolve(this.root, state.projectConfig.preset);
+      const preset = JSON.parse(fs.readFileSync(url).toString());
+      Object.assign(state.preset, preset);
+    } catch (e) {
+      console.error('Read preset file error');
     }
   }
 

@@ -1,6 +1,5 @@
 import * as ts from 'typescript';
-
-const PIPE_ALIAS = `'pipe/index'`;
+import state from './state';
 
 export class AstProvider {
   private sourceFile: ts.SourceFile | null = null;
@@ -13,6 +12,7 @@ export class AstProvider {
   public env: Field.Env = {
     PIPE: 'pipe',
     FIELD: 'field',
+    PRESET: 'preset',
     filePath: ''
   };
 
@@ -38,8 +38,15 @@ export class AstProvider {
           if (this.editorMode) {
             this.editTargetNode(it);
           } else {
-            if (this.searchTargetDecorator(it as ts.ClassDeclaration, this.env.FIELD)) {
+            // Field
+            const field = this.searchTargetDecorator(it, this.env.FIELD!);
+            if (field) {
               this.searchPipeFromClass(it as ts.ClassDeclaration);
+            }
+            // Preset
+            const preset = this.searchPresetDecorator(it);
+            if (preset) {
+              this.searchPipeFromClass(it as ts.ClassDeclaration, preset);
             }
           }
           break;
@@ -137,18 +144,22 @@ export class AstProvider {
   
   private createPipeDecorator (pipe: Field.PipeNode) {
     const properties: ts.ObjectLiteralElementLike[] = [];
-    if (pipe.source) {
-      const srcArray: ts.Expression[] = [];
+    if (pipe.source && pipe.source.length) {
+      const arr: ts.Expression[] = [];
       pipe.source.forEach(src => {
-        srcArray.push(this.createStringOrIndentifierProperty(src));
+        arr.push(this.createStringOrIndentifierProperty(src));
       });
       properties.push(
-        ts.createPropertyAssignment('prev', ts.createArrayLiteral(srcArray))
+        ts.createPropertyAssignment('prev', ts.createArrayLiteral(arr))
       );
     }
-    if (pipe.destination) {
+    if (pipe.next && pipe.next.length) {
+      const arr: ts.Expression[] = [];
+      pipe.next.forEach(src => {
+        arr.push(this.createStringOrIndentifierProperty(src));
+      });
       properties.push(
-        ts.createPropertyAssignment('next', this.createStringOrIndentifierProperty(pipe.destination))
+        ts.createPropertyAssignment('next', ts.createArrayLiteral(arr))
       );
     }
     if (pipe.key) {
@@ -168,7 +179,7 @@ export class AstProvider {
     }
     return ts.createDecorator(
       ts.createCall(
-        ts.createIdentifier(this.env.PIPE),
+        ts.createIdentifier(this.env.PIPE!),
         [],
         [ts.createObjectLiteral(properties, true)]
       )
@@ -176,7 +187,7 @@ export class AstProvider {
   }
 
   private checkPipeReference (node: ts.ImportDeclaration) {
-    if ((node as ts.ImportDeclaration).moduleSpecifier.getText() !== PIPE_ALIAS) {
+    if ((node as ts.ImportDeclaration).moduleSpecifier.getText() !== state.projectConfig.libName) {
       return;
     }
   
@@ -198,12 +209,36 @@ export class AstProvider {
   }
 
   private searchTargetDecorator (node: ts.Node, flag: string): ts.Decorator | undefined {
-    return node.decorators && node.decorators.find(deco => {
+    if (!node.decorators) {
+      return;
+    }
+    return node.decorators.find(deco => {
       return deco.expression.getText() === flag;
     });
   }
 
-  private searchPipeFromClass (node: ts.ClassDeclaration) {
+  private searchPresetDecorator (node: ts.Node): string | undefined {
+    if (!node.decorators) {
+      return;
+    }
+
+    let preset: string | undefined;
+    node.decorators.some(deco => {
+      if (deco.expression.kind === ts.SyntaxKind.CallExpression) {
+        const exp = deco.expression as ts.CallExpression;
+        if (exp.expression.getText() === this.env.PRESET) {
+          preset = this.getValueText(exp.arguments[0]);
+          return true;
+        } else {
+          return false;
+        }
+      }
+      return false;
+    });
+    return preset;
+  }
+
+  private searchPipeFromClass (node: ts.ClassDeclaration, preset?: string) {
     const className = node.name ? node.name.getText() : 'anonymousClass';
     const field: Field.PipeModule = {
       env: this.env,
@@ -215,16 +250,28 @@ export class AstProvider {
     ts.forEachChild(node, it => {
       switch (it.kind) {
         case ts.SyntaxKind.MethodDeclaration:
-          if (this.isPublic(it)) {
-            field.methods.push((it as ts.MethodDeclaration).name.getText());
-            const res = this.checkPipeDecorator(it as ts.MethodDeclaration);
-            if (res) {
-              const { kind, desc } = this.getFieldOrMethodInfo(it);
-              res.className = className;
-              res.kind =  kind || field.kind;
-              res.desc = desc;
-              field.pipes.push(res);
-            }
+          // TODO 目前只支持Public属性
+          if (!this.isPublic(it)) {
+            return;
+          }
+          // 存储当前的public方法
+          const method = (it as ts.MethodDeclaration).name.getText();
+          field.methods.push(method);
+          let res: Field.PipeNode | undefined;
+          if (preset) {
+            const pipe = state.preset[preset.replace(/\'/g, '')].find(opt => {
+              return opt.method === method;
+            });
+            res = this.parsePresetOption(it as ts.MethodDeclaration, pipe);
+          } else {
+            res = this.checkPipeDecorator(it as ts.MethodDeclaration);
+          }
+          if (res) {
+            const { kind, desc } = this.getFieldOrMethodInfo(it);
+            res.className = className;
+            res.kind = kind || field.kind;
+            res.desc = desc;
+            field.pipes.push(res);
           }
           break;
       }
@@ -257,16 +304,10 @@ export class AstProvider {
     return res;
   }
 
-	private checkPipeDecorator (node: ts.MethodDeclaration): Field.PipeNode | undefined {
-		if (!node.decorators || !node.decorators.length) {
-			// TODO: 没有装饰器或者装饰器不是pipe的method也应该展示
-			return;
-    }
-
-    const length = node.decorators.length;    
-		const method = node.name.getText();
+  private createTreeNodeFromMethod (node: ts.MethodDeclaration): Field.PipeNode {
     const { line, character } = this.sourceFile!.getLineAndCharacterOfPosition(node.getStart());
-    const treeNode: Field.PipeNode = {
+		const method = node.name.getText();
+    return {
       method,
       source: [],
       enable: false,
@@ -277,7 +318,61 @@ export class AstProvider {
         range: method.length
       }
     };
-    
+  }
+
+  private wrapTextValue (text: string): string {
+    return `'${text}'`;
+  }
+
+  private parsePresetOption (node: ts.MethodDeclaration, opt?: Pipe.IOptions): Field.PipeNode | undefined {
+    if (!opt) {
+      return;
+    }
+    const treeNode = this.createTreeNodeFromMethod(node);
+    // TMP 临时处理方案
+    if (opt.prev) {
+      opt.source = opt.prev;
+      delete opt.prev;
+    }
+    Object.keys(opt).forEach(k => {
+      //@ts-ignore
+      const val = opt[k];
+      switch (k) {
+        case 'source':
+        case 'next':
+          if (val) {
+            if (Array.isArray(val)) {
+              const list: string[] = [];
+              val.forEach(text => {
+                list.push(this.wrapTextValue(text));
+              });
+              treeNode[k] = list;
+            } else {
+              treeNode[k] = [this.wrapTextValue(val)];
+            }
+          }
+          break;
+        case 'key':
+          treeNode.key = this.wrapTextValue(val);
+          break;
+        case 'worker':
+          treeNode.enableWorker = val;
+          break;
+        case 'lazy':
+          treeNode.lazy = val;
+          break;
+      }
+    });
+    return treeNode;
+  }
+
+	private checkPipeDecorator (node: ts.MethodDeclaration): Field.PipeNode | undefined {
+		if (!node.decorators || !node.decorators.length) {
+			return;
+    }
+
+    const length = node.decorators.length;    
+    const treeNode = this.createTreeNodeFromMethod(node);
 		
 		node.decorators.forEach(deco => {
 			// check pipe decorator
@@ -285,14 +380,11 @@ export class AstProvider {
 				const exp = deco.expression as ts.CallExpression;
 				const args = exp.arguments;
 				const length = args.length;
-				this.parseArguments(treeNode, args[0]);
+        this.parseArguments(treeNode, args[0]);
+        // 函数重载的情况，适用于pipe(prev, next)的形式
 				if (length > 1) {
-					treeNode.destination = this.getValueText(args[1]);
+					treeNode.next = [this.getValueText(args[1])];
         }
-        // TODO: Ignore this!
-				if (!treeNode.destination) {
-					treeNode.destination = treeNode.method;
-				}
 			}
     });
 
@@ -330,16 +422,10 @@ export class AstProvider {
 			const valueObject = (prop.valueDeclaration as ts.PropertyAssignment).initializer;
 			switch (prop.name) {
 				case 'prev':
-					if (ts.isArrayLiteralExpression(valueObject)) {
-						valueObject.elements.forEach(ele => {
-							treeNode.source.push(this.getValueText(ele));
-						});
-					} else {
-						treeNode.source.push(this.getValueText(valueObject));
-					}
+          treeNode.source = this.getArrayValueText(valueObject);
 					break;
 				case 'next':
-					treeNode.destination = this.getValueText(valueObject);
+					treeNode.next = this.getArrayValueText(valueObject);
 					break;
 				case 'key':
 					treeNode.key = this.getValueText(valueObject);
@@ -352,7 +438,19 @@ export class AstProvider {
 					break;
 			}
 		});
-	}
+  }
+  
+  private getArrayValueText (valueObject: ts.Expression): string[] {
+    const res: string[] = [];
+    if (ts.isArrayLiteralExpression(valueObject)) {
+      valueObject.elements.forEach(ele => {
+        res.push(this.getValueText(ele));
+      });
+    } else {
+      res.push(this.getValueText(valueObject));
+    }
+    return res;
+  }
 
 	private getValueText (node: ts.Node): string {
 		if (node.kind === ts.SyntaxKind.StringLiteral) {
@@ -385,7 +483,7 @@ export class AstProvider {
 			return;
 		}
     const exp = (node as any).expression.expression;
-		if (exp.kind === ts.SyntaxKind.Identifier && exp.text === this.env.PIPE) {
+		if (exp.kind === ts.SyntaxKind.Identifier && this.env.PIPE && exp.text === this.env.PIPE) {
 			type = this.env.PIPE;
 		}
 		// get operator like pipe.method
